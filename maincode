@@ -1,96 +1,69 @@
 import gradio as gr
 import requests
+import os
 
-# Set your Hugging Face API token here
-HUGGING_FACE_TOKEN = ""
-MODEL_NAME = "mistralai/Mistral-7B-Instruct"  # Change this to another model if needed
+# Set your Hugging Face API token
+HUGGING_FACE_TOKEN = os.getenv("HUGGING_FACE_TOKEN", "")
+MODEL_NAME = "gpt2"  # Switch to GPT-2 model
 
 API_URL = f"https://api-inference.huggingface.co/models/{MODEL_NAME}"
 HEADERS = {"Authorization": f"Bearer {HUGGING_FACE_TOKEN}"}
 
-# Chat function using Hugging Face API
+# Function to send a chat message to the Hugging Face API
 def household_chat(history, message):
     if history is None:
         history = []
 
-    # Format conversation history for the API
-    messages = history + [{"role": "user", "content": message}]
+    # GPT-2 models usually work with a simple text string, so just concatenate the messages
+    chat_input = message  # GPT-2 doesn't typically need special roles
 
-    # Prepare payload
     payload = {
-        "inputs": [{"role": m["role"], "content": m["content"]} for m in messages],
-        "parameters": {"max_new_tokens": 100, "temperature": 0.7},
+        "inputs": chat_input,
+        "parameters": {"max_length": 150, "temperature": 0.7},
     }
 
-    # Call Hugging Face API
-    response = requests.post(API_URL, headers=HEADERS, json=payload)
+    # Make the API call
+    try:
+        response = requests.post(API_URL, headers=HEADERS, json=payload)
+        response.raise_for_status()  # Raises HTTPError if the response code is not 200
+        response_data = response.json()
 
-    # Extract AI response
-    if response.status_code == 200:
-        bot_reply = response.json()[0]["generated_text"]
-    else:
-        bot_reply = "⚠️ Error: Failed to get response from Hugging Face API."
-
-    # Update history
+        # Get the generated response from the model
+        bot_reply = response_data[0].get("generated_text", "⚠️ Unexpected response format.")
+    except requests.exceptions.RequestException as e:
+        bot_reply = f"⚠️ Error occurred: {str(e)}"
+    
+    # Update the history
+    history.append({"role": "user", "content": message})
     history.append({"role": "assistant", "content": bot_reply})
 
-    return history, ""  # Clear input box
+    return history, bot_reply
 
-# Welcome Page
-def welcome_page():
-    with gr.Blocks() as welcome:
-        gr.Markdown("# 🏠 Household AI Assistant")
-        gr.Markdown("### Your AI helper for home tasks!")
-        start_button = gr.Button("Start Chat")
-        start_button.click(lambda: gr.Tabs.update(selected=1))
-    return welcome
-
-# Demo Page
-def demo_page():
-    with gr.Blocks() as demo:
-        gr.Markdown("## 🔍 Demo - Features")
-        gr.Markdown("- ✅ Meal Planning & Recipes 🍽️\n"
-                    "- ✅ Cleaning Schedules 🧹\n"
-                    "- ✅ Grocery Organization 🛒\n"
-                    "- ✅ DIY Fixes 🔧\n"
-                    "- ✅ Home Maintenance Tips 🏡")
-        demo_button = gr.Button("Continue to Chat")
-        demo_button.click(lambda: gr.Tabs.update(selected=2))
-    return demo
-
-# Chat Page
+# Chat Interface
 def chat_page():
     with gr.Blocks() as chat_interface:
-        gr.Markdown("## 💬 Chat with Household AI")
+        gr.Markdown("## 💬 Chat with GPT-2 Assistant")
+
+        # Create a chat history component
         chat_history = gr.Chatbot(label="Chat", type="messages")
-        message_input = gr.Textbox(label="Ask a question")
+
+        # Textbox for the user input and send button
+        message_input = gr.Textbox(label="Ask a question", placeholder="Type your message here...")
+
         send_button = gr.Button("Send")
         end_chat_button = gr.Button("End Chat")
 
-        # Store chat history
+        # Manage the conversation state (empty list at the start)
         history_state = gr.State([])
 
-        # Send button triggers chat function
+        # When the send button is clicked, update the chat history
         send_button.click(household_chat, inputs=[history_state, message_input], outputs=[chat_history, message_input])
 
-        # End chat button moves to timeout page
-        end_chat_button.click(lambda: gr.Tabs.update(selected=3))
+        # Optional end chat functionality (clear chat history)
+        end_chat_button.click(lambda: gr.update(selected="Goodbye"), inputs=None, outputs=None)
 
     return chat_interface
 
-# Timeout Page
-def timeout_page():
-    with gr.Blocks() as timeout:
-        gr.Markdown("# 🛑 Conversation Over")
-        restart_button = gr.Button("Restart")
-        restart_button.click(lambda: gr.Tabs.update(selected=0))  # Go back to Welcome Page
-    return timeout
-
-# Combine pages into a tabbed interface
-app = gr.TabbedInterface(
-    [welcome_page(), demo_page(), chat_page(), timeout_page()],
-    ["Welcome", "Demo", "Chat", "Goodbye"]
-)
-
-# Launch on your local network
-app.launch(server_name="192.168.2.38", server_port=7860)
+# Launch Gradio app for Hugging Face Spaces or localhost
+app = chat_page()
+app.launch(server_name="0.0.0.0", server_port=int(os.getenv("PORT", 7860)))
